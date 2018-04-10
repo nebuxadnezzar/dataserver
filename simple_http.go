@@ -2,19 +2,22 @@ package main;
 
 import (
     "fmt"
+    "regexp"
     "net/http"
     "strings"
     "log"
     "time"
     "os"
-    "strconv"
     "os/signal"
+    "io/ioutil"
+    "strconv"
     "syscall"
     "github.com/yuin/gopher-lua"
     du "./dataserver/util"
 )
 
 const DEFAULT_ADDRESS = ":8080"
+const DEFAULT_SCRIPT = `sendData('{"status":"ok", "handler":null}')`
 
 type requestHandler struct {
     method func( http.ResponseWriter, *http.Request)
@@ -22,6 +25,8 @@ type requestHandler struct {
 }
 
 var  sendData func( http.ResponseWriter, [] byte)
+var handlerResolver func( string ) string
+
 //-----------------------------------------------------------------------------
 func createSendDataFunc( headers map[string] string ) func ( http.ResponseWriter, [] byte ) {
 
@@ -44,7 +49,7 @@ func createSendDataFromLuaFunc( w http.ResponseWriter, f func( http.ResponseWrit
 
         s := L.ToString( 1 )
         l := len(s)
-        fmt.Printf( "STRING FROM LUA %s\n", s )
+        fmt.Printf( "\nSTRING FROM LUA %s\n", s )
         fmt.Printf( "BYTES FROM LUA %v\n", []byte(s) )
         L.Push( lua.LNumber( l ))
         dataFunc( writer, []byte(s))
@@ -52,14 +57,34 @@ func createSendDataFromLuaFunc( w http.ResponseWriter, f func( http.ResponseWrit
     }
 }
 //-----------------------------------------------------------------------------
-func sendDataFromLua( L * lua.LState ) int {
+func createHandlerResolver( handlerMap map[string]string ) func( string ) string {
 
-    s := L.ToString( 1 )
-    l := len(s)
-    fmt.Printf( "STRING FROM LUA %s\n", s )
-    fmt.Printf( "BYTES FROM LUA %v\n", []byte(s) )
-    L.Push( lua.LNumber( l ))
-    return l;
+    m := make( map[string]string )
+
+    for pattern, path := range handlerMap {
+
+        if data, err := ioutil.ReadFile( path ); err == nil {
+            m[ pattern ] = string( data )
+        }
+    }
+
+    return func ( path string ) string {
+
+        var handlerCode string = "";
+
+        for pattern, data := range m {
+
+            if matched, err := regexp.MatchString( pattern, path ); err == nil && matched {
+                handlerCode = data;
+                break;
+            } else if err != nil {
+                log.Printf( "Broken pattern %s %v\n", pattern, err.Error() )
+            }
+        }
+
+        if handlerCode == "" { handlerCode = DEFAULT_SCRIPT; }
+        return handlerCode;
+    }
 }
 //-----------------------------------------------------------------------------
 func worker( w http.ResponseWriter, r *http.Request ){
@@ -84,6 +109,11 @@ func worker( w http.ResponseWriter, r *http.Request ){
     defer L.Close()
     dataFunc := createSendDataFromLuaFunc( w, sendData )
     L.SetGlobal("sendData", L.NewFunction(dataFunc)) // Register our function in Lua
+    script := handlerResolver( r.URL.Path )
+
+    if err := L.DoString( script ); err != nil {
+        sendData( w, []byte( fmt.Sprintf( "Error executing lua script\n\n%s\n\n%s\n", err.Error())))
+    }
     //dataFunc( L )
 }
 //-----------------------------------------------------------------------------
@@ -107,28 +137,6 @@ func echo( w http.ResponseWriter, r *http.Request ){
     //fmt.Fprintf( w, "Hello astaxie %s %d%d", t.Format(time.RFC850), t.Year(), t.Month )
     data := fmt.Sprintf( "Hello astaxie %s %d%d", t.Format("20060102150405"), t.Year(), t.Month )
     sendData( w, []byte(data))
-/*
-    y := t.Year()
-    mon := t.Month()
-    d := t.Day()
-    h := t.Hour()
-    m := t.Minute()
-    s := t.Second()
-    n := t.Nanosecond()
-
-    fmt.Println("Year   :",y)
-    fmt.Printf("Month   :%02d\n",int(mon))
-    fmt.Println("Day   :",d)
-    fmt.Println("Hour   :",h)
-    fmt.Println("Minute :",m)
-    fmt.Println("Second :",s)
-    fmt.Println("Nanosec:",n)
-
-    year, month, day := t.Date()
- fmt.Println("Year : ", year)
- fmt.Println("Month : ", month)
- fmt.Println("Day : ", day)
-*/
 }
 //-----------------------------------------------------------------------------
 func createSvr( addr string,
@@ -176,6 +184,7 @@ func main() {
     keepAlive := true;
     address := DEFAULT_ADDRESS;
     sendData = createSendDataFunc( configMap["headers"] )
+    handlerResolver = createHandlerResolver( configMap["handlers"])
 
     if b, err := strconv.ParseBool( configMap["interface"]["keepalive"] ); err == nil {
         keepAlive = b;
@@ -184,9 +193,10 @@ func main() {
     if addr := configMap["interface"]["address"]; addr != "" {
         address = addr;
     }
-    rh := []requestHandler{ {pattern:"/", method:echo}, {pattern:"echo", method:echo}}
+    rh := []requestHandler{ {pattern:"/", method:worker}, {pattern:"/echo", method:echo}}
     err := createSvr( address, keepAlive, rh )
     if err != nil {
         log.Fatal( "ListenAndServe: ", err )
     }
 }
+
