@@ -49,8 +49,8 @@ func createSendDataFromLuaFunc( w http.ResponseWriter, f func( http.ResponseWrit
 
         s := L.ToString( 1 )
         l := len(s)
-        fmt.Printf( "\nSTRING FROM LUA %s\n", s )
-        fmt.Printf( "BYTES FROM LUA %v\n", []byte(s) )
+        //fmt.Printf( "\nSTRING FROM LUA %s\n", s )
+        //fmt.Printf( "BYTES FROM LUA %v\n", []byte(s) )
         L.Push( lua.LNumber( l ))
         dataFunc( writer, []byte(s))
         return l;
@@ -90,7 +90,7 @@ func createHandlerResolver( handlerMap map[string]string ) func( string ) string
 func worker( w http.ResponseWriter, r *http.Request ){
 
     r.ParseForm()
-    fmt.Printf("FORM: %v\n",r.Form) // print form information in server side
+    //fmt.Printf("FORM: %v\n",r.Form) // print form information in server side
     fmt.Printf("path: %s scheme: %s\n", r.URL.Path, r.URL.Scheme)
     //fmt.Printf("URL: %v\n", r.URL.Query())
 
@@ -98,15 +98,20 @@ func worker( w http.ResponseWriter, r *http.Request ){
     for k, v := range r.URL.Query() {
         fmt.Printf( "\t%s ==> %s\n", k, strings.Join( v, ", ") )
     }
-    var paramMap map[string][]string = r.Form
 
-    for k, v := range paramMap {
-        log.Printf( "key: %s\tval: %s\n", k, strings.Join( v, ", ") )
-    }
-    t := time.Now().Local()
-    fmt.Printf( "Handler %s %d%d", t.Format("20060102150405"), t.Year(), t.Month )
     L := lua.NewState()
     defer L.Close()
+    luaTbl := L.NewTable();
+
+    for k, v := range r.Form {
+        log.Printf( "key: %s\tval: %s\n", k, strings.Join( v, ", ") )
+        luaTbl.RawSetH(lua.LString( k ), lua.LString( strings.Join( v, ",")))
+    }
+    L.SetGlobal("requestParams", luaTbl)
+
+    t := time.Now().Local()
+    fmt.Printf( "Handler %s %d%d", t.Format("20060102150405"), t.Year(), t.Month )
+
     dataFunc := createSendDataFromLuaFunc( w, sendData )
     L.SetGlobal("sendData", L.NewFunction(dataFunc)) // Register our function in Lua
     script := handlerResolver( r.URL.Path )
