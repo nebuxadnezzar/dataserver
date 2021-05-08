@@ -94,8 +94,17 @@ func createHandlerResolver(handlerMap map[string]string) func(string) string {
 
 //-----------------------------------------------------------------------------
 func worker(w http.ResponseWriter, r *http.Request) {
+	/*
+		buff := make([]byte, 1024)
+		n, err := r.Body.Read(buff)
+		body := string(buff[:n])
 
+		fmt.Printf("REQUEST BODY: %v %v %v\n", n, err, body)
+		fmt.Printf("PARSED: %v\n", du.ParseRequestForm(body))
+	*/
 	r.ParseForm()
+
+	// use bytes.Buffer
 	//fmt.Printf("FORM: %v\n",r.Form) // print form information in server side
 	fmt.Printf("path: %s scheme: %s\n", r.URL.Path, r.URL.Scheme)
 	//fmt.Printf("URL: %v\n", r.URL.Query())
@@ -110,7 +119,7 @@ func worker(w http.ResponseWriter, r *http.Request) {
 	luaTbl := L.NewTable()
 
 	for k, v := range r.Form {
-		log.Printf("key: %s\tval: %s\n", k, strings.Join(v, ", "))
+		log.Printf("FORM -> key: %s\tval: %s\n", k, strings.Join(v, ", "))
 		luaTbl.RawSetH(lua.LString(k), lua.LString(strings.Join(v, ",")))
 	}
 	L.SetGlobal("requestParams", luaTbl)
