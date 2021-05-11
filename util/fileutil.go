@@ -30,33 +30,6 @@ func ReadFileLines(fileName string) []string {
 	return a
 }
 
-/*
-func ParseIniFile( fn string ) map[string]map[string]string {
-
-    mp := make( map[string]map[string]string );
-    var m map[string]string;
-    re := regexp.MustCompile("\\[(.*)\\]");
-    rb := regexp.MustCompile( "(\\[|\\])")
-
-    for _, v := range ReadFileLines(fn ) {
-
-        if( re.MatchString( v )){
-            //fmt.Printf( "HEADER %s\n", rb.ReplaceAllString( v, "") )
-            m = make( map[string]string )
-            mp[ rb.ReplaceAllString( v, "") ] = m
-            continue
-        }
-        //fmt.Println( v )
-
-        if( strings.HasPrefix( v, ";")){ continue }
-
-        if ss := strings.SplitN( v, "=", 2); len( ss ) > 1 {
-            m[ ss[0] ] = ss[ 1 ]
-        }
-    }
-    return mp;
-}
-*/
 func main() {
 
 	if len(os.Args) < 2 {
@@ -66,6 +39,6 @@ func main() {
 	args := os.Args[1:]
 	fn := args[0]
 
-	m := ParseIniFile(fn)
+	m := ParseIniFile(ReadFileLines(fn))
 	fmt.Printf("%v\n", m)
 }

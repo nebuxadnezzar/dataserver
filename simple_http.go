@@ -20,6 +20,11 @@ import (
 const DEFAULT_ADDRESS = ":8080"
 const DEFAULT_SCRIPT = `sendData('{"status":"ok", "handler":null}')`
 
+var FORM_HEADERS [2]string = [...]string{"application/x-www-form-urlencoded", "multipart/form-data"}
+
+const BODY_PARAM = "_body_"
+const MAX_BODY_SIZE = 1024
+
 type requestHandler struct {
 	method  func(http.ResponseWriter, *http.Request)
 	pattern string
@@ -94,29 +99,32 @@ func createHandlerResolver(handlerMap map[string]string) func(string) string {
 
 //-----------------------------------------------------------------------------
 func worker(w http.ResponseWriter, r *http.Request) {
-	/*
-		buff := make([]byte, 1024)
+
+	L := lua.NewState()
+	defer L.Close()
+	luaTbl := L.NewTable()
+
+	if hdr := r.Header.Get("Content-Type"); du.ItemExists(FORM_HEADERS, hdr) && r.ParseForm() != nil {
+		fmt.Println("ERROR parsing form!")
+	} else {
+		buff := make([]byte, MAX_BODY_SIZE)
 		n, err := r.Body.Read(buff)
-		body := string(buff[:n])
+		fmt.Printf("REQUEST BODY: %v %v %v\n", n, err, string(buff))
+		if n > 0 && err.Error() == "EOF" {
+			luaTbl.RawSetH(lua.LString(BODY_PARAM), lua.LString(string(buff[:n])))
+		} else {
+			fmt.Printf("ERROR reading request body: %v\n", err.Error())
+		}
+	}
 
-		fmt.Printf("REQUEST BODY: %v %v %v\n", n, err, body)
-		fmt.Printf("PARSED: %v\n", du.ParseRequestForm(body))
-	*/
-	r.ParseForm()
-
-	// use bytes.Buffer
-	//fmt.Printf("FORM: %v\n",r.Form) // print form information in server side
 	fmt.Printf("path: %s scheme: %s\n", r.URL.Path, r.URL.Scheme)
 	//fmt.Printf("URL: %v\n", r.URL.Query())
 
 	fmt.Println("query params:")
 	for k, v := range r.URL.Query() {
 		fmt.Printf("\t%s ==> %s\n", k, strings.Join(v, ", "))
+		luaTbl.RawSetH(lua.LString(k), lua.LString(strings.Join(v, ",")))
 	}
-
-	L := lua.NewState()
-	defer L.Close()
-	luaTbl := L.NewTable()
 
 	for k, v := range r.Form {
 		log.Printf("FORM -> key: %s\tval: %s\n", k, strings.Join(v, ", "))
@@ -155,8 +163,8 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		log.Printf("key: %s\tval: %s\n", k, strings.Join(v, ", "))
 	}
 	t := time.Now().Local()
-	//fmt.Fprintf( w, "Hello astaxie %s %d%d", t.Format(time.RFC850), t.Year(), t.Month )
-	data := fmt.Sprintf("Hello astaxie %s %d%d", t.Format("20060102150405"), t.Year(), t.Month)
+
+	data := fmt.Sprintf("Timestamp: %s %d%d", t.Format("20060102150405"), t.Year(), t.Month)
 	sendData(w, []byte(data))
 }
 
@@ -193,6 +201,14 @@ func finalCleanup(svr *http.Server) {
 }
 
 //-----------------------------------------------------------------------------
+func createConfigMap(fileName string) map[string]map[string]string {
+
+	records := du.ReadFileLines(fileName)
+	configMap := du.ParseIniFile(records)
+	return configMap
+}
+
+//-----------------------------------------------------------------------------
 func main() {
 
 	if len(os.Args) < 2 {
@@ -201,7 +217,7 @@ func main() {
 	}
 	args := os.Args[1:]
 
-	configMap := du.ParseIniFile(args[0])
+	configMap := createConfigMap(args[0])
 
 	fmt.Printf("%v\n", configMap)
 

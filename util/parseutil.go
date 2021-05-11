@@ -2,21 +2,18 @@
 package util
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
 
-const MAX_PARAM_VALS int = 2
-
-func ParseIniFile(fn string) map[string]map[string]string {
+func ParseIniFile(records []string) map[string]map[string]string {
 
 	mp := make(map[string]map[string]string)
 	var m map[string]string
 	re := regexp.MustCompile("\\[(.*)\\]")
 	rb := regexp.MustCompile("(\\[|\\])")
 
-	for _, v := range ReadFileLines(fn) {
+	for _, v := range records {
 
 		if re.MatchString(v) {
 			//fmt.Printf( "HEADER %s\n", rb.ReplaceAllString( v, "") )
@@ -37,6 +34,8 @@ func ParseIniFile(fn string) map[string]map[string]string {
 	return mp
 }
 
+/*
+const MAX_PARAM_VALS int = 2
 func ParseRequestForm(form string) map[string][]string {
 
 	m := make(map[string][]string)
@@ -50,6 +49,7 @@ func ParseRequestForm(form string) map[string][]string {
 				}
 				a := m[zz[0]]
 				fmt.Printf("%d %v %v\n", i, a, zz[1])
+				fmt.Printf("%d %d %v\n", len(a), cap(a), a)
 				if i < len(a) {
 					a[i] = zz[1]
 				} else {
@@ -60,3 +60,4 @@ func ParseRequestForm(form string) map[string][]string {
 	}
 	return m
 }
+*/
