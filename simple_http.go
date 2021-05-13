@@ -19,6 +19,7 @@ import (
 
 const DEFAULT_ADDRESS = ":8080"
 const DEFAULT_SCRIPT = `sendData('{"status":"ok", "handler":null}')`
+const FAILED_TEMPLATE = `{"status":"fail", "message":"%s"}`
 
 var FORM_HEADERS [2]string = [...]string{"application/x-www-form-urlencoded", "multipart/form-data"}
 
@@ -90,9 +91,6 @@ func createHandlerResolver(handlerMap map[string]string) func(string) string {
 			}
 		}
 
-		if handlerCode == "" {
-			handlerCode = DEFAULT_SCRIPT
-		}
 		return handlerCode
 	}
 }
@@ -139,10 +137,15 @@ func worker(w http.ResponseWriter, r *http.Request) {
 	L.SetGlobal("sendData", L.NewFunction(dataFunc)) // Register our function in Lua
 	script := handlerResolver(r.URL.Path)
 
+	if script == "" {
+		w.Header().Set("Content-type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, fmt.Sprintf(FAILED_TEMPLATE, "404 not found"))
+		return
+	}
 	if err := L.DoString(script); err != nil {
 		sendData(w, []byte(fmt.Sprintf("Error executing lua script\n\n%s\n\n%s\n", err.Error())))
 	}
-	//dataFunc( L )
 }
 
 //-----------------------------------------------------------------------------
