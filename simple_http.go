@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	du "dataserver/util"
 	"fmt"
 	"io/ioutil"
@@ -22,6 +23,7 @@ const DEFAULT_SCRIPT = `sendData('{"status":"ok", "handler":null}')`
 const FAILED_TEMPLATE = `{"status":"fail", "message":"%s"}`
 
 var FORM_HEADERS [2]string = [...]string{"application/x-www-form-urlencoded", "multipart/form-data"}
+var SUPPORTED_METHODS [3]string = [...]string{"GET", "POST", "HEAD"}
 
 const BODY_PARAM = "_body_"
 const MAX_BODY_SIZE = 1024
@@ -33,6 +35,7 @@ type requestHandler struct {
 
 var sendData func(http.ResponseWriter, []byte)
 var handlerResolver func(string) string
+var cgiResolver func(string) string
 
 //-----------------------------------------------------------------------------
 func createSendDataFunc(headers map[string]string) func(http.ResponseWriter, []byte) {
@@ -96,38 +99,107 @@ func createHandlerResolver(handlerMap map[string]string) func(string) string {
 }
 
 //-----------------------------------------------------------------------------
+func createCgiResolver(cgiMap map[string]string) func(string) string {
+
+	m := make(map[string]string)
+
+	for pattern, path := range cgiMap {
+		m[pattern] = path
+	}
+
+	return func(path string) string {
+
+		var cgiScript string = ""
+
+		for pattern, path := range m {
+
+			if matched, err := regexp.MatchString(pattern, path); err == nil && matched {
+				cgiScript = path
+				break
+			} else if err != nil {
+				log.Printf("Broken pattern %s %v\n", pattern, err.Error())
+			}
+		}
+
+		return cgiScript
+	}
+}
+
+//-----------------------------------------------------------------------------
+func sendError(w http.ResponseWriter, code int, msg string) {
+
+	w.Header().Set("Content-type", "application/json")
+	w.WriteHeader(code)
+	fmt.Fprintln(w, fmt.Sprintf(FAILED_TEMPLATE, msg))
+}
+
+//-----------------------------------------------------------------------------
+func collectParams(r *http.Request) (map[string][]string, error) {
+
+	err := &du.Error{}
+
+	if !du.ItemExists(SUPPORTED_METHODS, r.Method) {
+		err.Set(http.StatusMethodNotAllowed, fmt.Sprintf("Usupported method %s", r.Method))
+		return nil, err
+	}
+
+	if du.ItemExists(FORM_HEADERS, r.Header.Get("Content-Type")) {
+		e := r.ParseForm()
+		if e != nil {
+			err.Set(http.StatusUnsupportedMediaType, e.Error())
+			return nil, err
+		}
+	}
+	m := map[string][]string(r.URL.Query())
+
+	for k, v := range r.Form {
+		m[k] = v
+	}
+	fmt.Printf("\nPARAM MAP: %v\n", m)
+	return m, nil
+}
+
+//-----------------------------------------------------------------------------
+func cgi(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("cgi called")
+	m, err := collectParams(r)
+
+	if err != nil {
+		sendError(w, err.(*du.Error).Code(), err.Error())
+		return
+	}
+
+	sendData(w, []byte(fmt.Sprintf("Hi From CGI %v", m)))
+}
+
+//-----------------------------------------------------------------------------
 func worker(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("worker called")
+	m, err := collectParams(r)
+
+	if err != nil {
+		sendError(w, err.(*du.Error).Code(), err.Error())
+		return
+	}
 
 	L := lua.NewState()
 	defer L.Close()
 	luaTbl := L.NewTable()
 
-	if hdr := r.Header.Get("Content-Type"); du.ItemExists(FORM_HEADERS, hdr) && r.ParseForm() != nil {
-		fmt.Println("ERROR parsing form!")
+	buff := make([]byte, MAX_BODY_SIZE)
+	n, err := r.Body.Read(buff)
+	fmt.Printf("REQUEST BODY: %v %v %v\n", n, err, string(buff))
+
+	if n > 0 && err.Error() == "EOF" {
+		luaTbl.RawSetH(lua.LString(BODY_PARAM), lua.LString(string(buff[:n])))
 	} else {
-		buff := make([]byte, MAX_BODY_SIZE)
-		n, err := r.Body.Read(buff)
-		fmt.Printf("REQUEST BODY: %v %v %v\n", n, err, string(buff))
-		if n > 0 && err.Error() == "EOF" {
-			luaTbl.RawSetH(lua.LString(BODY_PARAM), lua.LString(string(buff[:n])))
-		} else {
-			fmt.Printf("ERROR reading request body: %v\n", err.Error())
-		}
+		fmt.Printf("ERROR reading request body: %v\n", err.Error())
 	}
 
-	fmt.Printf("path: %s scheme: %s\n", r.URL.Path, r.URL.Scheme)
-	//fmt.Printf("URL: %v\n", r.URL.Query())
-
-	fmt.Println("query params:")
-	for k, v := range r.URL.Query() {
-		fmt.Printf("\t%s ==> %s\n", k, strings.Join(v, ", "))
+	for k, v := range m {
 		luaTbl.RawSetH(lua.LString(k), lua.LString(strings.Join(v, ",")))
 	}
 
-	for k, v := range r.Form {
-		log.Printf("FORM -> key: %s\tval: %s\n", k, strings.Join(v, ", "))
-		luaTbl.RawSetH(lua.LString(k), lua.LString(strings.Join(v, ",")))
-	}
 	L.SetGlobal("requestParams", luaTbl)
 
 	t := time.Now().Local()
@@ -138,9 +210,7 @@ func worker(w http.ResponseWriter, r *http.Request) {
 	script := handlerResolver(r.URL.Path)
 
 	if script == "" {
-		w.Header().Set("Content-type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprintln(w, fmt.Sprintf(FAILED_TEMPLATE, "404 not found"))
+		sendError(w, http.StatusNotFound, "404 not found")
 		return
 	}
 	if err := L.DoString(script); err != nil {
@@ -150,31 +220,27 @@ func worker(w http.ResponseWriter, r *http.Request) {
 
 //-----------------------------------------------------------------------------
 func echo(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("echo called")
+	paramMap, err := collectParams(r)
 
-	r.ParseForm()
-	fmt.Printf("FORM: %v\n", r.Form) // print form information in server side
-	fmt.Printf("path: %s scheme: %s\n", r.URL.Path, r.URL.Scheme)
-	//fmt.Printf("URL: %v\n", r.URL.Query())
-
-	fmt.Println("query params:")
-	for k, v := range r.URL.Query() {
-		fmt.Printf("\t%s -> %s\n", k, strings.Join(v, ", "))
+	if err != nil {
+		sendError(w, err.(*du.Error).Code(), err.Error())
+		return
 	}
-	var paramMap map[string][]string = r.Form
+
+	var buf bytes.Buffer
 
 	for k, v := range paramMap {
-		log.Printf("key: %s\tval: %s\n", k, strings.Join(v, ", "))
+		buf.WriteString(fmt.Sprintf("key: %s\tval: %s\n", k, strings.Join(v, ", ")))
 	}
 	t := time.Now().Local()
+	buf.WriteString(fmt.Sprintf("Timestamp: %s %d%d", t.Format("20060102150405"), t.Year(), t.Month))
 
-	data := fmt.Sprintf("Timestamp: %s %d%d", t.Format("20060102150405"), t.Year(), t.Month)
-	sendData(w, []byte(data))
+	sendData(w, buf.Bytes())
 }
 
 //-----------------------------------------------------------------------------
-func createSvr(addr string,
-	keepalive bool,
-	handlers []requestHandler) error {
+func createSvr(addr string, keepalive bool, handlers []requestHandler) error {
 
 	http.DefaultTransport.(*http.Transport).MaxIdleConns = 2
 	http.DefaultTransport.(*http.Transport).IdleConnTimeout = 2 * time.Second
@@ -184,7 +250,7 @@ func createSvr(addr string,
 	for _, v := range handlers {
 		mx.HandleFunc(v.pattern, v.method)
 	}
-	fmt.Printf("MUX %v\n", mx)
+	// fmt.Printf("MUX %v\n", mx)
 	server := &http.Server{Addr: addr, Handler: mx}
 	server.SetKeepAlivesEnabled(keepalive)
 	finalCleanup(server)
@@ -228,6 +294,7 @@ func main() {
 	address := DEFAULT_ADDRESS
 	sendData = createSendDataFunc(configMap["headers"])
 	handlerResolver = createHandlerResolver(configMap["handlers"])
+	handlerResolver = createHandlerResolver(configMap["cgi"])
 
 	if b, err := strconv.ParseBool(configMap["interface"]["keepalive"]); err == nil {
 		keepAlive = b
@@ -236,7 +303,10 @@ func main() {
 	if addr := configMap["interface"]["address"]; addr != "" {
 		address = addr
 	}
-	rh := []requestHandler{{pattern: "/", method: worker}, {pattern: "/echo", method: echo}}
+	rh := []requestHandler{
+		{pattern: "/echo", method: echo},
+		{pattern: "/cgi/", method: cgi},
+		{pattern: "/", method: worker}}
 	err := createSvr(address, keepAlive, rh)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)

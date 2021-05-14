@@ -2,15 +2,10 @@
 package util
 
 import (
-	"fmt"
 	"io"
 	"os/exec"
 	"strings"
 )
-
-func Dummy() {
-	fmt.Println("this is dummy")
-}
 
 func RunCgi(w io.Writer, cmdPath string, args []string) error {
 

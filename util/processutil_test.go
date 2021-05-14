@@ -56,15 +56,7 @@ func TestIntMinTableDriven(t *testing.T) {
 }
 */
 func TestCgi(t *testing.T) {
-	/*
-		var buf bytes.Buffer
-
-		RunCgi(&buf, `ls`, []string{`ls`})
-	*/
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Size: %d MB.", 85)
-	s := buf.String() // s == "Size: 85 MB."
-	fmt.Println(s)
 	RunCgi(&buf, `ls`, []string{`-la`})
 
 	fmt.Printf("CGI OUTPUT: %s\n", buf.String())
