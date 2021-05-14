@@ -107,13 +107,13 @@ func createCgiResolver(cgiMap map[string]string) func(string) string {
 		m[pattern] = path
 	}
 
-	return func(path string) string {
+	return func(url string) string {
 
 		var cgiScript string = ""
 
 		for pattern, path := range m {
 
-			if matched, err := regexp.MatchString(pattern, path); err == nil && matched {
+			if matched, err := regexp.MatchString(pattern, url); err == nil && matched {
 				cgiScript = path
 				break
 			} else if err != nil {
@@ -169,7 +169,8 @@ func cgi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendData(w, []byte(fmt.Sprintf("Hi From CGI %v", m)))
+	script := cgiResolver(r.URL.Path)
+	sendData(w, []byte(fmt.Sprintf("Hi From CGI %v \n %s", m, script)))
 }
 
 //-----------------------------------------------------------------------------
@@ -234,7 +235,7 @@ func echo(w http.ResponseWriter, r *http.Request) {
 		buf.WriteString(fmt.Sprintf("key: %s\tval: %s\n", k, strings.Join(v, ", ")))
 	}
 	t := time.Now().Local()
-	buf.WriteString(fmt.Sprintf("Timestamp: %s %d%d", t.Format("20060102150405"), t.Year(), t.Month))
+	buf.WriteString(fmt.Sprintf("Timestamp: %s %d %d", t.Format("2006-01-02 15:04:05"), t.Year(), t.Month))
 
 	sendData(w, buf.Bytes())
 }
@@ -294,7 +295,7 @@ func main() {
 	address := DEFAULT_ADDRESS
 	sendData = createSendDataFunc(configMap["headers"])
 	handlerResolver = createHandlerResolver(configMap["handlers"])
-	handlerResolver = createHandlerResolver(configMap["cgi"])
+	cgiResolver = createCgiResolver(configMap["cgi"])
 
 	if b, err := strconv.ParseBool(configMap["interface"]["keepalive"]); err == nil {
 		keepAlive = b
