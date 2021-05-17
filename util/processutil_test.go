@@ -57,7 +57,13 @@ func TestIntMinTableDriven(t *testing.T) {
 */
 func TestCgi(t *testing.T) {
 	var buf bytes.Buffer
-	RunCgi(&buf, `ls`, []string{`-la`})
-
+	RunCgi(&buf, `ls`, ``)
 	fmt.Printf("CGI OUTPUT: %s\n", buf.String())
+	buf = bytes.Buffer{}
+	if err := RunCgi(&buf, `ls`, ``); err != nil {
+		t.Errorf("TestCGI error: %s\n", err.Error())
+	} else {
+		fmt.Printf("CGI OUTPUT: %s\n", buf.String())
+	}
+
 }

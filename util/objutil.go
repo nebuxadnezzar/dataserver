@@ -21,3 +21,19 @@ func ItemExists(arrayType interface{}, item interface{}) bool {
 
 	return false
 }
+
+func IsArray(val interface{}) bool {
+	return GetKind(val) == reflect.Array
+}
+
+func IsString(val interface{}) bool {
+	return GetKind(val) == reflect.String
+}
+
+func IsSlice(val interface{}) bool {
+	return GetKind(val) == reflect.Slice
+}
+
+func GetKind(val interface{}) reflect.Kind {
+	return reflect.ValueOf(val).Kind()
+}

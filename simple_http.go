@@ -170,7 +170,13 @@ func cgi(w http.ResponseWriter, r *http.Request) {
 	}
 
 	script := cgiResolver(r.URL.Path)
-	sendData(w, []byte(fmt.Sprintf("Hi From CGI %v \n %s", m, script)))
+	w.Header().Set("Content-type", "text/plain")
+	if err := du.RunCgi(w, script, du.CreateKeyValuePairs(m, ` `, false)); err != nil {
+		sendError(w, 500, err.Error())
+		return
+	}
+
+	//sendData(w, []byte(fmt.Sprintf("Hi From CGI %v \n %s", m, script)))
 }
 
 //-----------------------------------------------------------------------------

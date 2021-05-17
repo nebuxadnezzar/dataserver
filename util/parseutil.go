@@ -2,6 +2,8 @@
 package util
 
 import (
+	"bytes"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -32,6 +34,22 @@ func ParseIniFile(records []string) map[string]map[string]string {
 		}
 	}
 	return mp
+}
+
+func CreateKeyValuePairs(m map[string][]string, sep string, quoted bool) string {
+	var q string = ``
+	if quoted {
+		q = `"`
+	}
+
+	//b := new(bytes.Buffer) // same as below but might allocate on the heap
+	b := &bytes.Buffer{}
+	for key, value := range m {
+		var s string = ``
+		s = strings.Join(value, `,`)
+		fmt.Fprintf(b, "%s%s%s%s%s%s%s ", q, key, q, sep, q, s, q)
+	}
+	return b.String()
 }
 
 /*
