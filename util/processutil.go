@@ -2,20 +2,34 @@
 package util
 
 import (
+	"bytes"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
-	"strings"
 )
 
-func RunCgi(w io.Writer, cmdPath string, args ...string) error {
-	//fmt.Printf("run cgi called %s %s\n", cmdPath, strings.Join(args, " "))
-	cmd := exec.Command(cmdPath, strings.Join(args, " "))
-	var err error
-	var b []byte
-	if b, err = cmd.Output(); err == nil {
-		//fmt.Printf("cgi -> %s", string(b))
-		w.Write(b)
-	}
+func Spawn(buf *bytes.Buffer, cmdStr string, args ...string) error {
 
-	return err
+	procAttr := &os.ProcAttr{Files: []*os.File{nil, os.Stdout, os.Stderr},
+		Env: os.Environ(),
+		Dir: "./",
+	}
+	var path string
+	var err error
+
+	if path, err = exec.LookPath(cmdStr); err != nil {
+		fmt.Errorf("%s\n", err.Error())
+		return err
+	}
+	r, w, _ := os.Pipe()
+	procAttr.Files[1] = w
+	if _, err = os.StartProcess(path, args, procAttr); err != nil {
+		fmt.Errorf("%s\n", err.Error())
+		return err
+	}
+	w.Close()
+	io.Copy(buf, r)
+
+	return nil
 }

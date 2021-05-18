@@ -36,6 +36,12 @@ func ParseIniFile(records []string) map[string]map[string]string {
 	return mp
 }
 
+func Sterilize(s string) string {
+	rx := regexp.MustCompile("([;&|]|[-]{2,})")
+	ss := rx.ReplaceAllString(s, "")
+	return ss
+}
+
 func CreateKeyValuePairs(m map[string][]string, sep string, quoted bool) string {
 	var q string = ``
 	if quoted {

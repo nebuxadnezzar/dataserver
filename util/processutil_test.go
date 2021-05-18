@@ -54,16 +54,17 @@ func TestIntMinTableDriven(t *testing.T) {
 		})
 	}
 }
+
 */
-func TestCgi(t *testing.T) {
+
+// curl "http://localhost:8080/cgi/lss?-la=-rt&-F=-xh"
+
+func TestSpawn(t *testing.T) {
+
 	var buf bytes.Buffer
-	RunCgi(&buf, `ls`, ``)
-	fmt.Printf("CGI OUTPUT: %s\n", buf.String())
-	buf = bytes.Buffer{}
-	if err := RunCgi(&buf, `ls`, ``); err != nil {
+	if err := Spawn(&buf, "ls", "ls", "-la"); err != nil {
 		t.Errorf("TestCGI error: %s\n", err.Error())
 	} else {
 		fmt.Printf("CGI OUTPUT: %s\n", buf.String())
 	}
-
 }
