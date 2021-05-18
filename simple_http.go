@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,7 +22,9 @@ import (
 const DEFAULT_ADDRESS = ":8080"
 const DEFAULT_SCRIPT = `sendData('{"status":"ok", "handler":null}')`
 const FAILED_TEMPLATE = `{"status":"fail", "message":"%s"}`
+const IMAGE_PATTERN = `(?i)(jpg|png|gif|svg)`
 
+var IMAGE_RX *regexp.Regexp = regexp.MustCompile(IMAGE_PATTERN)
 var FORM_HEADERS [2]string = [...]string{"application/x-www-form-urlencoded", "multipart/form-data"}
 var SUPPORTED_METHODS [3]string = [...]string{"GET", "POST", "HEAD"}
 
@@ -36,6 +39,7 @@ type requestHandler struct {
 var sendData func(http.ResponseWriter, []byte)
 var handlerResolver func(string) string
 var cgiResolver func(string) string
+var staticResolver func(string) ([]byte, error)
 
 //-----------------------------------------------------------------------------
 func createSendDataFunc(headers map[string]string) func(http.ResponseWriter, []byte) {
@@ -99,6 +103,33 @@ func createHandlerResolver(handlerMap map[string]string) func(string) string {
 }
 
 //-----------------------------------------------------------------------------
+func createStaticResolver(staticMap map[string]string) func(string) ([]byte, error) {
+
+	return func(path string) ([]byte, error) {
+
+		var content []byte = nil
+
+		for pattern, folder := range staticMap {
+
+			if matched, err := regexp.MatchString(pattern, path); err == nil && matched {
+				_, fileName := filepath.Split(path)
+				contentPath, _ := filepath.Abs(fmt.Sprintf("%s%c%s", folder, os.PathSeparator, fileName))
+				if content, err = ioutil.ReadFile(contentPath); err != nil {
+					log.Printf("Failed to read %s %s\n", contentPath, err.Error())
+					return nil, err
+				}
+				break
+			} else if err != nil {
+				log.Printf("Broken pattern or missing content %s %s\n", pattern, err.Error())
+				return nil, err
+			}
+		}
+
+		return content, nil
+	}
+}
+
+//-----------------------------------------------------------------------------
 func createCgiResolver(cgiMap map[string]string) func(string) string {
 
 	m := make(map[string]string)
@@ -157,6 +188,30 @@ func collectParams(r *http.Request) (map[string][]string, error) {
 	}
 	fmt.Printf("\nPARAM MAP: %v\n", m)
 	return m, nil
+}
+
+//-----------------------------------------------------------------------------
+func staticHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("staticHandler called")
+	_, err := collectParams(r)
+	var content []byte = nil
+
+	if err != nil {
+		sendError(w, err.(*du.Error).Code(), err.Error())
+		return
+	}
+
+	if content, err = staticResolver(r.URL.Path); err != nil {
+		sendError(w, http.StatusNotFound, fmt.Sprintf("%s doesn't exist", r.URL.Path))
+		return
+	}
+	ext := filepath.Ext(r.URL.Path)
+	hdr := "text/html"
+	if IMAGE_RX.MatchString(ext) {
+		hdr = fmt.Sprintf("image/%s", strings.Replace(ext, ".", "", 1))
+	}
+	w.Header().Set("Content-type", hdr)
+	sendData(w, content)
 }
 
 //-----------------------------------------------------------------------------
@@ -304,6 +359,7 @@ func main() {
 	sendData = createSendDataFunc(configMap["headers"])
 	handlerResolver = createHandlerResolver(configMap["handlers"])
 	cgiResolver = createCgiResolver(configMap["cgi"])
+	staticResolver = createStaticResolver(configMap["static"])
 
 	if b, err := strconv.ParseBool(configMap["interface"]["keepalive"]); err == nil {
 		keepAlive = b
@@ -315,6 +371,7 @@ func main() {
 	rh := []requestHandler{
 		{pattern: "/echo", method: echo},
 		{pattern: "/cgi/", method: cgi},
+		{pattern: "/pub/", method: staticHandler},
 		{pattern: "/", method: worker}}
 	err := createSvr(address, keepAlive, rh)
 	if err != nil {

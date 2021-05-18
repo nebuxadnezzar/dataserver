@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	//"strings"
 )
 
 func Spawn(buf *bytes.Buffer, cmdStr string, args ...string) error {
@@ -24,6 +25,7 @@ func Spawn(buf *bytes.Buffer, cmdStr string, args ...string) error {
 	}
 	r, w, _ := os.Pipe()
 	procAttr.Files[1] = w
+	//fmt.Printf("CGI ARGS: %s\n", strings.Join(args, ` `))
 	if _, err = os.StartProcess(path, args, procAttr); err != nil {
 		fmt.Errorf("%s\n", err.Error())
 		return err
